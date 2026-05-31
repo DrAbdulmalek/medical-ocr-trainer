@@ -2,28 +2,32 @@
 
 **Interactive tool for training and correcting medical handwriting OCR**
 
-Arabic & English medical note recognition powered by PaddleOCR with a human-in-the-loop correction pipeline.
+5 OCR engines (PaddleOCR, EasyOCR, Tesseract, TrOCR, Surya) with smart ensemble merging and a human-in-the-loop correction pipeline.
 
 ---
 
 ## Features
 
-- **Upload & OCR**: Upload scanned medical notes (JPG/PNG) and run PaddleOCR with automatic image preprocessing (contrast enhancement + sharpening)
-- **Interactive Correction**: Edit recognized words in a Streamlit data editor, sorted by confidence (lowest first)
+- **5-Engine Ensemble OCR**: PaddleOCR + EasyOCR + Tesseract + TrOCR + Surya OCR running simultaneously with smart result merging
+- **4 Merging Strategies**: Majority voting, confidence-weighted averaging, Levenshtein consensus, and best-single selection
+- **Upload & OCR**: Upload scanned medical notes (JPG/PNG) with automatic image preprocessing (contrast enhancement + sharpening)
+- **Interactive Correction**: Edit recognized words in a Streamlit data editor, sorted by confidence (lowest first), with per-engine vote visibility
+- **Engine Comparison**: Detailed per-engine performance comparison with word counts, processing times, and visual charts
 - **Auto Crop Generation**: Word crops are automatically generated with padding when corrections are saved
 - **Multi-layer Data Filtering**: Classify corrections as gold/pending/rejected based on confidence, error frequency, clinical importance, and medical dictionary matching
-- **Multi-format Export**: Export training data as JSONL (HuggingFace), CSV, or HuggingFace image folder format
-- **Real-time Metrics**: Track CER, WER, confidence distribution, and correction progress
+- **Multi-format Export**: Export training data as JSONL (HuggingFace), CSV, or HuggingFace image folder format with ensemble metadata
+- **Real-time Metrics**: Track CER, WER, confidence distribution, inter-engine agreement, and correction progress
 - **Arabic Support**: Full RTL support with script detection (Arabic/Latin/Numeric/Mixed)
 
 ## Architecture
 
 ```
 medical_ocr_trainer/
-├── app.py                 # Main Streamlit application (upload, OCR, correct, stats)
+├── app.py                 # Main Streamlit application (upload, ensemble OCR, correct, compare)
+├── ensemble_ocr.py         # 5-engine ensemble system with 4 merging strategies
 ├── data_filter.py         # Automated correction quality filter (5-layer classification)
 ├── export_training.py     # Multi-format training data exporter (JSONL/CSV/HuggingFace)
-├── requirements.txt       # Python dependencies
+├── requirements.txt       # Python dependencies (all 5 OCR engines)
 ├── uploads/                # Uploaded medical note images (gitignored)
 ├── crops/                  # Auto-generated word crops for training (gitignored)
 ├── data/                   # SQLite database (corrections.db) (gitignored)
@@ -48,11 +52,14 @@ The app will open in your browser at `http://localhost:8501`.
 
 ### 3. Use the Tool
 
-1. **Upload** a scanned medical note (JPG/PNG)
-2. **Review** OCR results — words are sorted by confidence (lowest first)
-3. **Correct** wrong words in the interactive editor
-4. **Save** — corrections are stored and word crops are auto-generated
-5. **Export** training data when ready
+1. **Select engines** — Choose which OCR engines to enable in the sidebar
+2. **Choose strategy** — Pick a merging strategy (majority voting, weighted, etc.)
+3. **Upload** a scanned medical note (JPG/PNG)
+4. **Review** ensemble results — words sorted by confidence with per-engine votes visible
+5. **Correct** wrong words in the interactive editor
+6. **Save** — corrections stored, crops auto-generated, engine logs recorded
+7. **Compare** — View per-engine performance in the comparison tab
+8. **Export** training data with full ensemble metadata
 
 ## Data Filtering Pipeline
 
@@ -145,8 +152,70 @@ python export_training.py --stats
 | streamlit | >= 1.28.0 | Web UI framework |
 | paddleocr | >= 2.7.0 | Arabic/English OCR engine |
 | paddlepaddle | >= 2.5.0 | Deep learning framework |
+| easyocr | >= 1.7.0 | Multi-language OCR (80+ langs) |
+| pytesseract | >= 0.3.10 | Fast printed text OCR |
+| transformers | >= 4.35.0 | TrOCR (Transformer OCR) |
+| torch | >= 2.0.0 | PyTorch for TrOCR |
+| sentencepiece | >= 0.1.99 | Tokenizer for TrOCR |
+| surya-ocr | >= 0.5.0 | Modern high-accuracy OCR |
 | Pillow | >= 10.0.0 | Image processing |
 | pandas | >= 2.0.0 | Data manipulation |
+| numpy | >= 1.24.0 | Numerical operations |
+
+### Minimal Installation (skip heavy engines)
+
+```bash
+# Core only (PaddleOCR + Streamlit)
+pip install streamlit paddleocr paddlepaddle Pillow pandas numpy
+
+# Add Tesseract (also needs: apt install tesseract-ocr)
+pip install pytesseract
+
+# Add EasyOCR (~500MB extra)
+pip install easyocr
+
+# Add TrOCR (~1.5GB extra)
+pip install transformers torch sentencepiece
+
+# Add Surya OCR (~800MB extra)
+pip install surya-ocr
+```
+
+## Ensemble System
+
+The `ensemble_ocr.py` module provides a unified interface for running multiple OCR engines and merging their results:
+
+### Engines
+
+| Engine | Strengths | Memory | Languages |
+|--------|-----------|--------|----------|
+| PaddleOCR | Arabic/English mixed, handwriting | ~300MB | 80+ |
+| EasyOCR | Latin text, mixed documents | ~500MB | 80+ |
+| Tesseract | Fast, printed text | ~50MB | 100+ |
+| TrOCR | Handwriting recognition | ~1.5GB | Latin |
+| Surya OCR | Modern, high accuracy | ~800MB | 90+ |
+
+### Merging Strategies
+
+| Strategy | Description | Best For |
+|----------|-------------|----------|
+| `majority_voting` | Text with most engine votes wins | General use, high accuracy |
+| `confidence_weighted` | Weighted average by confidence | Mixed quality engines |
+| `levenshtein_consensus` | Most similar text to all engines | Small OCR errors |
+| `best_single` | Highest confidence result only | One strong engine |
+
+### Command Line Usage
+
+```bash
+# Run all engines with majority voting
+python ensemble_ocr.py --image scan.jpg --engines all --strategy majority_voting
+
+# Run specific engines
+python ensemble_ocr.py --image doc.png --engines paddleocr easyocr tesseract --strategy confidence_weighted
+
+# JSON output
+python ensemble_ocr.py --image note.jpg --engines all --strategy majority_voting --json
+```
 
 ## Related Projects
 
