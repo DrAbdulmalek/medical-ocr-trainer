@@ -1,0 +1,5 @@
+streamlit>=1.28.0
+paddleocr>=2.7.0
+paddlepaddle>=2.5.0
+Pillow>=10.0.0
+pandas>=2.0.0
