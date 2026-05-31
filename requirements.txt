@@ -1,5 +1,24 @@
+# === Core ===
 streamlit>=1.28.0
-paddleocr>=2.7.0
-paddlepaddle>=2.5.0
 Pillow>=10.0.0
 pandas>=2.0.0
+numpy>=1.24.0
+
+# === OCR Engines ===
+# 1. PaddleOCR (Arabic + English, best for mixed medical docs)
+paddleocr>=2.7.0
+paddlepaddle>=2.5.0
+
+# 2. EasyOCR (80+ languages, good for Latin and mixed text)
+easyocr>=1.7.0
+
+# 3. Tesseract (fast, reliable for printed text)
+pytesseract>=0.3.10
+
+# 4. TrOCR (Transformer-based, best for handwriting)
+transformers>=4.35.0
+torch>=2.0.0
+sentencepiece>=0.1.99
+
+# 5. Surya OCR (modern, 90+ languages, high accuracy)
+surya-ocr>=0.5.0

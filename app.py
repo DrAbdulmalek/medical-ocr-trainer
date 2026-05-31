@@ -1,27 +1,42 @@
 """
 Medical OCR Trainer — مُدرّب التعرف على الملاحظات الطبية اليدوية
-==============================================================
+================================================================
 واجهة Streamlit تفاعلية لرفع الملاحظات الطبية الممسوحة ضوئياً،
-تشغيل OCR، تصحيح الكلمات، وحفظ بيانات التدريب تلقائياً.
+تشغيل 5 محركات OCR مع تجمع ذكي، تصحيح الكلمات،
+وحفظ بيانات التدريب تلقائياً.
 
 الاستخدام:
     pip install -r requirements.txt
     streamlit run app.py
 
-المكونات:
+المحركات:
     - PaddleOCR: محرك التعرف على النصوص (عربي + إنجليزي)
-    - SQLite: قاعدة بيانات محلية للتصحيحات
-    - PIL: معالجة الصور والقصاصات
+    - EasyOCR: دعم +80 لغة
+    - Tesseract: سريع للمطبوع
+    - TrOCR: Transformer للخط اليدوي
+    - Surya OCR: محرك حديث عالي الدقة
+
+استراتيجيات الدمج:
+    - majority_voting: تصويت الأغلبية
+    - confidence_weighted: متوسط مرجح بالثقة
+    - levenshtein_consensus: إجماع المسافة
+    - best_single: أفضل نتيجة واحدة
 """
 
 import os
+import sys
 import json
 import sqlite3
 import uuid
+import time
 import streamlit as st
 import pandas as pd
 from PIL import Image, ImageEnhance, ImageFilter
 from datetime import datetime
+
+# استيراد نظام التجمع
+from ensemble_ocr import EnsembleOCR, EnsembleResult
+
 
 # ============================================================
 # إعدادات المسارات
@@ -33,6 +48,25 @@ DB_PATH = os.path.join(DIR_DB, "corrections.db")
 
 for d in [DIR_UPLOADS, DIR_CROPS, DIR_DB]:
     os.makedirs(d, exist_ok=True)
+
+
+# ============================================================
+# تهيئة نظام التجمع (cached)
+# ============================================================
+def get_ensemble(
+    engines=None,
+    strategy='majority_voting',
+    confidence_threshold=0.3,
+):
+    """إنشاء أو إعادة استخدام نظام التجمع"""
+    key = f"ensemble_{strategy}_{'_'.join(sorted(engines or []))}_{confidence_threshold}"
+    if key not in st.session_state:
+        st.session_state[key] = EnsembleOCR(
+            engines=engines or ['paddleocr', 'easyocr', 'tesseract'],
+            strategy=strategy,
+            confidence_threshold=confidence_threshold,
+        )
+    return st.session_state[key]
 
 
 # ============================================================
@@ -53,7 +87,7 @@ def init_db():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
 
-    # جدول الكلمات المستخرجة والتصحيحات
+    # جدول الكلمات المستخرجة والتصحيحات (محدث لدعم التجمع)
     c.execute("""CREATE TABLE IF NOT EXISTS words (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         image_id INTEGER NOT NULL,
@@ -68,6 +102,24 @@ def init_db():
         is_gold_standard BOOLEAN DEFAULT 0,
         script_class TEXT DEFAULT 'auto',
         correction_count INTEGER DEFAULT 0,
+        ensemble_strategy TEXT,
+        engines_used TEXT,
+        agreement_count INTEGER DEFAULT 1,
+        engine_votes TEXT,
+        FOREIGN KEY(image_id) REFERENCES images(id)
+    )""")
+
+    # جدول نتائج المحركات الفردية
+    c.execute("""CREATE TABLE IF NOT EXISTS engine_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        image_id INTEGER NOT NULL,
+        engine_name TEXT NOT NULL,
+        word_count INTEGER DEFAULT 0,
+        processing_time REAL DEFAULT 0,
+        available BOOLEAN DEFAULT 1,
+        error TEXT,
+        raw_results TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(image_id) REFERENCES images(id)
     )""")
 
@@ -112,18 +164,41 @@ def save_image_meta(filename, path, width=None, height=None):
     return img_id
 
 
-def save_words_meta(image_id, ocr_results):
-    """حفظ نتائج OCR في قاعدة البيانات"""
+def save_words_meta(image_id, ensemble_result):
+    """حفظ نتائج التجمع في قاعدة البيانات"""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     ids = []
-    for bbox, text, conf in ocr_results:
-        script = detect_script(text)
+
+    for word in ensemble_result.words:
+        script = detect_script(word.text)
         c.execute(
-            "INSERT INTO words (image_id, bbox, predicted_text, confidence, corrected_text, script_class) VALUES (?, ?, ?, ?, ?, ?)",
-            (image_id, json.dumps(bbox), text, float(conf), text, script)
+            """INSERT INTO words
+            (image_id, bbox, predicted_text, confidence, corrected_text, script_class,
+             ensemble_strategy, engines_used, agreement_count, engine_votes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                image_id, json.dumps(word.bbox), word.text, word.confidence,
+                word.text, script, word.strategy,
+                json.dumps(word.engines_used), word.agreement_count,
+                json.dumps(word.engine_votes),
+            )
         )
         ids.append(c.lastrowid)
+
+    # حفظ سجلات المحركات
+    for name, er in ensemble_result.engine_results.items():
+        c.execute(
+            """INSERT INTO engine_logs
+            (image_id, engine_name, word_count, processing_time, available, error, raw_results)
+            VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                image_id, name, er.word_count, er.processing_time,
+                1 if er.available else 0, er.error,
+                json.dumps(er.to_dict(), ensure_ascii=False),
+            )
+        )
+
     conn.commit()
     conn.close()
     return ids
@@ -159,7 +234,10 @@ def get_words(image_id):
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
     c.execute(
-        "SELECT id, bbox, predicted_text, confidence, corrected_text, is_corrected, script_class, correction_count FROM words WHERE image_id=? ORDER BY confidence ASC",
+        """SELECT id, bbox, predicted_text, confidence, corrected_text,
+                  is_corrected, script_class, correction_count,
+                  ensemble_strategy, engines_used, agreement_count, engine_votes
+           FROM words WHERE image_id=? ORDER BY confidence ASC""",
         (image_id,)
     )
     res = [dict(row) for row in c.fetchall()]
@@ -186,6 +264,20 @@ def get_all_documents():
     return res
 
 
+def get_engine_logs(image_id):
+    """جلب سجل أداء المحركات لمستند معين"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute(
+        "SELECT * FROM engine_logs WHERE image_id=? ORDER BY id",
+        (image_id,)
+    )
+    res = [dict(row) for row in c.fetchall()]
+    conn.close()
+    return res
+
+
 def get_stats():
     """جلب إحصائيات عامة"""
     conn = sqlite3.connect(DB_PATH)
@@ -199,6 +291,10 @@ def get_stats():
 
     avg_conf = c.execute("SELECT AVG(confidence) FROM words").fetchone()[0] or 0
     low_conf = c.execute("SELECT COUNT(*) FROM words WHERE confidence < 0.5").fetchone()[0]
+
+    # إحصائيات التجمع
+    ensemble_count = c.execute("SELECT COUNT(*) FROM words WHERE ensemble_strategy IS NOT NULL AND ensemble_strategy != ''").fetchone()[0]
+    avg_agreement = c.execute("SELECT AVG(agreement_count) FROM words WHERE agreement_count > 0").fetchone()[0] or 0
 
     # حساب CER و WER تقريبي
     corrections = c.execute(
@@ -225,6 +321,8 @@ def get_stats():
         "low_confidence": low_conf,
         "cer": total_cer / count if count > 0 else 0,
         "wer": total_wer / count if count > 0 else 0,
+        "ensemble_count": ensemble_count,
+        "avg_agreement": avg_agreement,
     }
 
 
@@ -311,30 +409,6 @@ def preprocess_image(img_path):
 
 
 # ============================================================
-# محرك OCR — PaddleOCR
-# ============================================================
-@st.cache_resource
-def load_ocr():
-    """
-    تحميل PaddleOCR مع دعم العربية.
-    lang='ar' يدعم الحروف اللاتينية بشكل مقبول في النسخ المختلطة.
-    """
-    return PaddleOCR(use_angle_cls=True, lang='ar', show_log=False)
-
-
-def run_ocr(image_path):
-    """تشغيل OCR واستخراج الكلمات مع الإحداثيات والثقة"""
-    ocr = load_ocr()
-    res = ocr.ocr(image_path, cls=True)
-    words = []
-    if res and res[0]:
-        for line in res[0]:
-            bbox, (text, conf) = line[0], line[1]
-            words.append((bbox, str(text), float(conf)))
-    return words
-
-
-# ============================================================
 # قص الصورة وحفظ القصاصة
 # ============================================================
 def crop_and_save(word_bbox, img_path, word_id, padding=8):
@@ -360,23 +434,85 @@ def crop_and_save(word_bbox, img_path, word_id, padding=8):
 # ============================================================
 def main():
     st.set_page_config(
-        page_title="Medical OCR Trainer",
+        page_title="Medical OCR Trainer — Ensemble",
         page_icon="🏥",
         layout="wide"
     )
 
+    init_db()
+
     # --- Sidebar ---
     with st.sidebar:
-        st.title("🏥 Medical OCR Trainer")
-        st.caption("مُدرّب التعرف على الملاحظات الطبية اليدوية")
+        st.title("Medical OCR Trainer")
+        st.caption("Ensemble — 5 Engines")
+
         st.markdown("---")
 
-        # الإحصائيات السريعة
+        # === إعدادات المحركات ===
+        st.subheader("⚙️ محركات OCR")
+
+        all_engines = list(EnsembleOCR.ENGINE_MAP.keys())
+
+        # فحص حالة المحركات
+        if 'engine_availability' not in st.session_state:
+            st.session_state.engine_availability = {}
+            test_ocr = EnsembleOCR(engines=all_engines)
+            st.session_state.engine_availability = test_ocr.get_available_engines()
+
+        selected_engines = []
+        for eng in all_engines:
+            info = EnsembleOCR.ENGINE_DESCRIPTIONS.get(eng, {})
+            avail = st.session_state.engine_availability.get(eng, False)
+            label = f"{info.get('icon', '?')} {info.get('name', eng)}"
+            if avail:
+                if st.checkbox(label, value=(eng in ['paddleocr', 'easyocr', 'tesseract']), key=f"engine_{eng}"):
+                    selected_engines.append(eng)
+            else:
+                st.checkbox(label, value=False, key=f"engine_{eng}", disabled=True)
+                st.caption(f"  ⚠️ غير متاح — {info.get('strengths', '')}")
+
+        # === استراتيجية الدمج ===
+        st.markdown("---")
+        st.subheader("🔄 استراتيجية الدمج")
+
+        strategy_map = {
+            'majority_voting': '🗳️ تصويت الأغلبية',
+            'confidence_weighted': '⚖️ متوسط مرجح بالثقة',
+            'levenshtein_consensus': '📏 إجماع المسافة',
+            'best_single': '🏆 أفضل نتيجة واحدة',
+        }
+
+        strategy = st.radio(
+            "اختر الاستراتيجية:",
+            list(strategy_map.keys()),
+            format_func=lambda x: strategy_map[x],
+            index=0,
+            key="strategy_select",
+        )
+
+        # === حد الثقة ===
+        confidence_threshold = st.slider(
+            "حد الثقة الأدنى",
+            min_value=0.0,
+            max_value=1.0,
+            value=0.3,
+            step=0.05,
+            help="تجاهل الكلمات أقل من هذا الحد"
+        )
+
+        st.markdown("---")
+
+        # === الإحصائيات السريعة ===
         stats = get_stats()
+        st.subheader("📊 الإحصائيات")
         st.metric("المستندات", stats["total_images"])
         st.metric("الكلمات", stats["total_words"])
         st.metric("التصحيحات", stats["corrected_words"])
         st.metric("عينات ذهبية", stats["gold_standard"])
+
+        if stats["ensemble_count"] > 0:
+            st.metric("نتائج التجمع", stats["ensemble_count"])
+            st.metric("متوسط الاتفاق", f"{stats['avg_agreement']:.1f}")
 
         st.markdown("---")
 
@@ -393,14 +529,6 @@ def main():
             )
 
         st.markdown("---")
-        st.markdown("### 📁 دليل الاستخدام")
-        st.markdown(
-            "1. ارفع صورة من الملاحظات\n"
-            "2. راجع نتائج OCR\n"
-            "3. صحح الكلمات الخاطئة\n"
-            "4. اضغط حفظ ← تُولّد القصصات تلقائياً\n"
-            "5. صدّر بيانات التدريب عند الحاجة"
-        )
 
         if st.button("📥 تصدير بيانات التدريب (JSONL)", use_container_width=True):
             export_training_data()
@@ -417,16 +545,32 @@ def main():
                 st.warning("اضغط مرة أخرى للتأكيد")
 
     # --- Main Area ---
-    st.title("🏥 مُدرّب التعرف على الملاحظات الطبية اليدوية")
-    st.caption("ارفع صورة ← صحح الكلمات ← يُحفظ التصحيح والقصاصة تلقائياً للتدريب المستقبلي")
+    st.title("Medical OCR Trainer — Ensemble")
+    st.caption("5 Engines + Smart Merging | PaddleOCR + EasyOCR + Tesseract + TrOCR + Surya")
 
-    init_db()
+    # عرض حالة المحركات
+    avail = st.session_state.get('engine_availability', {})
+    engine_cols = st.columns(len(all_engines))
+    for i, eng in enumerate(all_engines):
+        info = EnsembleOCR.ENGINE_DESCRIPTIONS.get(eng, {})
+        is_avail = avail.get(eng, False)
+        with engine_cols[i]:
+            status_icon = "✅" if is_avail else "❌"
+            st.markdown(
+                f"**{info.get('icon', '')} {info.get('name', eng)}**\n\n"
+                f"{status_icon} {'متاح' if is_avail else 'غير متاح'}\n\n"
+                f"*{info.get('strengths', '')}*\n\n"
+                f"~{info.get('memory', '?')} RAM"
+            )
+
+    st.markdown("---")
 
     # --- Tabs ---
-    tab1, tab2, tab3 = st.tabs([
+    tab1, tab2, tab3, tab4 = st.tabs([
         "📤 رفع ومعالجة",
         "📝 التصحيحات",
-        "📊 الإحصائيات"
+        "📊 الإحصائيات",
+        "🔍 مقارنة المحركات",
     ])
 
     # ========================================
@@ -440,17 +584,16 @@ def main():
         )
 
         if not uploaded:
-            # عرض رسالة ترحيب
             st.markdown(
                 """
                 ### 📤 ارفع مستندك الطبي
                 يدعم التطبيق:
+                - **5 محركات OCR** مع تجمع ذكي
                 - **الخط اليدوي** العربي والإنجليزي
-                - **المسوحات الضوئية** بجودة متوسطة
-                - **المصطلحات الطبية** المختلطة
-                - **الأرقام والجرعات**
+                - **4 استراتيجيات دمج** مختلفة
+                - **مقارنة تفصيلية** لنتائج كل محرك
 
-                يتم تحسين الصورة تلقائياً (زيادة التباين + شحذ الحواف) قبل تشغيل OCR.
+                يتم تحسين الصورة تلقائياً (زيادة التباين + شحذ الحواف) قبل التشغيل.
                 """
             )
         else:
@@ -458,78 +601,139 @@ def main():
             with open(file_path, "wb") as f:
                 f.write(uploaded.getbuffer())
 
-            with st.spinner("⚙️ معالجة الصورة وتشغيل OCR..."):
-                pre_path = preprocess_image(file_path)
-                ocr_res = run_ocr(pre_path)
-                img = Image.open(file_path)
-                img_id = save_image_meta(uploaded.name, file_path, img.width, img.height)
-                save_words_meta(img_id, ocr_res)
+            if not selected_engines:
+                st.error("❌ اختر محركاً واحداً على الأقل من الشريط الجانبي")
+            else:
+                # عرض تقدم المعالجة
+                progress_placeholder = st.empty()
+                log_placeholder = st.empty()
 
-            # عرض النتائج في عمودين
-            col1, col2 = st.columns([1.2, 1])
+                progress_placeholder.progress(0, text="جاري تهيئة المحركات...")
 
-            with col1:
-                st.image(file_path, caption="الصورة الأصلية", use_container_width=True)
+                # إنشاء نظام التجمع
+                ensemble = EnsembleOCR(
+                    engines=selected_engines,
+                    strategy=strategy,
+                    confidence_threshold=confidence_threshold,
+                )
 
-            with col2:
-                st.subheader("📝 جدول التصحيح التفاعلي")
-                st.markdown("💡 *الكلمات منخفضة الثقة تظهر أولاً. عدّل النص ثم اضغط حفظ.*")
+                with st.spinner(f"⚙️ تشغيل {len(selected_engines)} محرك OCR ({strategy})..."):
+                    # معالجة الصورة
+                    pre_path = preprocess_image(file_path)
+                    result = ensemble.process_image(pre_path, strategy=strategy)
 
-                words = get_words(img_id)
-                if not words:
-                    st.warning("لم يُعثر على نصوص. جرّب صورة أخرى أو تحقق من وضوح الكتابة.")
-                else:
-                    st.success(f"تم استخراج **{len(words)}** كلمة")
+                    progress_placeholder.progress(100, text="تم!")
 
-                    df = pd.DataFrame(words)
-                    df = df[["id", "predicted_text", "confidence", "is_corrected", "script_class"]]
-                    df.columns = ["ID", "النص المتوقع (قابل للتعديل)", "الثقة", "تم التصحيح؟", "نوع الخط"]
+                # عرض ملخص الأداء
+                st.markdown("### 📊 ملخص الأداء")
+                perf_cols = st.columns(3)
+                perf_cols[0].metric("⏱️ الوقت الكلي", f"{result.total_time:.2f}s")
+                perf_cols[1].metric("📝 الكلمات المدمجة", len(result.words))
+                perf_cols[2].metric("🔧 المحركات النشطة", len(result.engines_active))
 
-                    edited = st.data_editor(
-                        df,
-                        column_config={
-                            "النص المتوقع (قابل للتعديل)": st.column_config.TextColumn(width="large"),
-                            "الثقة": st.column_config.ProgressColumn(
-                                format="%.0f%%",
-                                min_value=0,
-                                max_value=100,
-                                help="درجة ثقة OCR"
-                            ),
-                        },
+                # عرض أداء كل محرك
+                with st.expander("📋 أداء كل محرك", expanded=False):
+                    perf_data = []
+                    for name, er in result.engine_results.items():
+                        info = EnsembleOCR.ENGINE_DESCRIPTIONS.get(name, {})
+                        perf_data.append({
+                            "المحرك": f"{info.get('icon', '')} {info.get('name', name)}",
+                            "الحالة": "✅ نشط" if er.available else "❌",
+                            "عدد الكلمات": er.word_count,
+                            "الوقت (ث)": f"{er.processing_time:.2f}",
+                        })
+                    st.dataframe(
+                        pd.DataFrame(perf_data),
                         hide_index=True,
                         use_container_width=True,
-                        num_rows="dynamic",
                     )
 
-                    if st.button("💾 حفظ التصحيحات وتوليد بيانات التدريب", type="primary", key="save_new"):
-                        progress = st.progress(0)
-                        saved = 0
-                        for i, (_, row) in enumerate(edited.iterrows()):
-                            wid = int(row["ID"])
-                            new_text = row["النص المتوقع (قابل للتعديل)"]
+                # حفظ في قاعدة البيانات
+                img = Image.open(file_path)
+                img_id = save_image_meta(uploaded.name, file_path, img.width, img.height)
+                save_words_meta(img_id, result)
 
-                            # جلب bbox الأصلي
-                            conn = sqlite3.connect(DB_PATH)
-                            c = conn.cursor()
-                            c.execute("SELECT predicted_text, confidence FROM words WHERE id=?", (wid,))
-                            orig = c.fetchone()
-                            conn.close()
+                # عرض النتائج
+                st.markdown("---")
+                col_img, col_results = st.columns([1, 1.3])
 
-                            if orig and new_text != orig[0]:
-                                conn2 = sqlite3.connect(DB_PATH)
-                                c2 = conn2.cursor()
-                                c2.execute("SELECT bbox FROM words WHERE id=?", (wid,))
-                                bbox = json.loads(c2.fetchone()[0])
-                                conn2.close()
+                with col_img:
+                    st.image(file_path, caption="الصورة الأصلية", use_container_width=True)
 
-                                crop_p = crop_and_save(bbox, pre_path, wid)
-                                is_gold = orig[1] < 0.65 and len(new_text) > 0
-                                update_word_correction(wid, new_text, crop_p, is_gold)
-                                saved += 1
+                with col_results:
+                    st.subheader("📝 جدول التصحيح التفاعلي")
+                    st.markdown("💡 *الكلمات منخفضة الثقة أولاً. عدّل النص ثم اضغط حفظ.*")
 
-                            progress.progress((i + 1) / len(edited))
+                    words = get_words(img_id)
+                    if not words:
+                        st.warning("لم يُعثر على نصوص. جرّب صورة أخرى أو تفعيل المزيد من المحركات.")
+                    else:
+                        st.success(f"تم استخراج **{len(words)}** كلمة (من {len(selected_engines)} محرك)")
 
-                        st.success(f"✅ تم حفظ **{saved}** تصحيح وتوليد القصصات التدريبية!")
+                        # تجهيز DataFrame
+                        df_data = []
+                        for w in words:
+                            engines_str = "، ".join(
+                                json.loads(w['engines_used']) if isinstance(w['engines_used'], str) else w.get('engines_used', [])
+                            ) if w.get('engines_used') else ""
+                            df_data.append({
+                                "ID": w["id"],
+                                "النص": w["predicted_text"],
+                                "الثقة": w["confidence"],
+                                "المحركات": engines_str,
+                                "الاتفاق": w.get("agreement_count", 1),
+                                "الاستراتيجية": w.get("ensemble_strategy", ""),
+                            })
+                        df = pd.DataFrame(df_data)
+
+                        edited = st.data_editor(
+                            df,
+                            column_config={
+                                "ID": st.column_config.NumberColumn(disabled=True, width="small"),
+                                "النص": st.column_config.TextColumn(width="large"),
+                                "الثقة": st.column_config.ProgressColumn(
+                                    format="%.0f%%",
+                                    min_value=0,
+                                    max_value=100,
+                                    help="درجة ثقة التجمع"
+                                ),
+                                "المحركات": st.column_config.TextColumn(width="medium"),
+                                "الاتفاق": st.column_config.NumberColumn(width="small"),
+                                "الاستراتيجية": st.column_config.TextColumn(width="small"),
+                            },
+                            hide_index=True,
+                            use_container_width=True,
+                            num_rows="dynamic",
+                        )
+
+                        if st.button("💾 حفظ التصحيحات وتوليد بيانات التدريب", type="primary", key="save_new"):
+                            progress = st.progress(0)
+                            saved = 0
+                            for i, (_, row) in enumerate(edited.iterrows()):
+                                wid = int(row["ID"])
+                                new_text = row["النص"]
+
+                                conn = sqlite3.connect(DB_PATH)
+                                c = conn.cursor()
+                                c.execute("SELECT predicted_text, confidence FROM words WHERE id=?", (wid,))
+                                orig = c.fetchone()
+                                conn.close()
+
+                                if orig and new_text != orig[0]:
+                                    conn2 = sqlite3.connect(DB_PATH)
+                                    c2 = conn2.cursor()
+                                    c2.execute("SELECT bbox FROM words WHERE id=?", (wid,))
+                                    bbox = json.loads(c2.fetchone()[0])
+                                    conn2.close()
+
+                                    crop_p = crop_and_save(bbox, pre_path, wid)
+                                    is_gold = orig[1] < 0.65 and len(str(new_text)) > 0
+                                    update_word_correction(wid, str(new_text), crop_p, is_gold)
+                                    saved += 1
+
+                                progress.progress((i + 1) / len(edited))
+
+                            st.success(f"✅ تم حفظ **{saved}** تصحيح وتوليد القصصات التدريبية!")
 
     # ========================================
     # تبويب 2: التصحيحات (عرض المستندات السابقة)
@@ -553,16 +757,21 @@ def main():
                         st.caption("لا توجد كلمات.")
                         continue
 
-                    df = pd.DataFrame(words)
-                    df = df[["id", "predicted_text", "confidence", "corrected_text", "is_corrected", "script_class"]]
-                    df.columns = [
-                        "ID",
-                        "النص المتوقع",
-                        "الثقة",
-                        "النص المصحح",
-                        "تم التصحيح؟",
-                        "نوع الخط",
-                    ]
+                    df_data = []
+                    for w in words:
+                        engines_str = "، ".join(
+                            json.loads(w['engines_used']) if isinstance(w['engines_used'], str) else w.get('engines_used', [])
+                        ) if w.get('engines_used') else ""
+                        df_data.append({
+                            "ID": w["id"],
+                            "النص المتوقع": w["predicted_text"],
+                            "الثقة": w["confidence"],
+                            "النص المصحح": w.get("corrected_text", ""),
+                            "المحركات": engines_str,
+                            "الاتفاق": w.get("agreement_count", 1),
+                        })
+
+                    df = pd.DataFrame(df_data)
 
                     edited = st.data_editor(
                         df,
@@ -585,7 +794,6 @@ def main():
                             new_text = row["النص المصحح"]
                             if new_text and str(new_text).strip():
                                 crop_path = os.path.join(DIR_CROPS, f"{wid}.png")
-                                # التحقق: هل الملف موجود؟ إن لم يكن، نحتاج bbox
                                 if not os.path.exists(crop_path):
                                     conn = sqlite3.connect(DB_PATH)
                                     c = conn.cursor()
@@ -594,7 +802,6 @@ def main():
                                     conn.close()
                                     if orig:
                                         bbox = json.loads(orig[0])
-                                        # البحث عن مسار الصورة الأصلية
                                         conn2 = sqlite3.connect(DB_PATH)
                                         c2 = conn2.cursor()
                                         c2.execute("SELECT path FROM images WHERE id=?", (doc["id"],))
@@ -631,11 +838,13 @@ def main():
 
         st.markdown("---")
 
-        col5, col6 = st.columns(2)
+        col5, col6, col7 = st.columns(3)
         with col5:
-            st.metric("📊 CER (معدل خطأ الحروف)", f"{stats['cer'] * 100:.1f}%")
+            st.metric("📊 CER", f"{stats['cer'] * 100:.1f}%")
         with col6:
-            st.metric("📊 WER (معدل خطأ الكلمات)", f"{stats['wer'] * 100:.1f}%")
+            st.metric("📊 WER", f"{stats['wer'] * 100:.1f}%")
+        with col7:
+            st.metric("🔗 متوسط الاتفاق", f"{stats['avg_agreement']:.1f}")
 
         st.progress(
             min(1.0, stats["avg_confidence"]),
@@ -664,7 +873,6 @@ def main():
                 import matplotlib.pyplot as plt
                 import matplotlib.font_manager as fm
 
-                # تحميل خط عربي
                 try:
                     fm.fontManager.addfont('/usr/share/fonts/truetype/chinese/NotoSansSC[wght].ttf')
                     plt.rcParams['font.sans-serif'] = ['Noto Sans SC', 'DejaVu Sans']
@@ -688,6 +896,107 @@ def main():
                 plt.tight_layout()
                 st.pyplot(fig)
 
+    # ========================================
+    # تبويب 4: مقارنة المحركات
+    # ========================================
+    with tab4:
+        st.subheader("🔍 مقارنة أداء المحركات")
+
+        # إحصائيات عامة من engine_logs
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+
+        # ملخص عام لكل محرك
+        c.execute("""
+            SELECT engine_name,
+                   COUNT(*) as total_runs,
+                   SUM(CASE WHEN available=1 THEN 1 ELSE 0 END) as successful_runs,
+                   AVG(CASE WHEN available=1 THEN word_count ELSE NULL END) as avg_words,
+                   AVG(CASE WHEN available=1 THEN processing_time ELSE NULL END) as avg_time,
+                   SUM(word_count) as total_words
+            FROM engine_logs
+            GROUP BY engine_name
+        """)
+        summary_rows = c.fetchall()
+
+        if not summary_rows:
+            st.info("لا توجد بيانات بعد. قم بمعالجة مستند من تبويب 'رفع ومعالجة' لرؤية المقارنة.")
+        else:
+            comp_data = []
+            for row in summary_rows:
+                name, total, success, avg_w, avg_t, total_w = row
+                info = EnsembleOCR.ENGINE_DESCRIPTIONS.get(name, {})
+                comp_data.append({
+                    "المحرك": f"{info.get('icon', '')} {info.get('name', name)}",
+                    "المهام": total,
+                    "النجاح": success,
+                    "متوسط الكلمات": f"{avg_w:.0f}" if avg_w else "—",
+                    "متوسط الوقت": f"{avg_t:.2f}s" if avg_t else "—",
+                    "إجمالي الكلمات": total_w or 0,
+                })
+
+            st.dataframe(
+                pd.DataFrame(comp_data),
+                hide_index=True,
+                use_container_width=True,
+            )
+
+            # رسم بياني
+            st.markdown("### 📈 أداء المحركات")
+            import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as plt
+
+            fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+            # رسم 1: عدد الكلمات لكل محرك
+            names = [EnsembleOCR.ENGINE_DESCRIPTIONS.get(r[0], {}).get('name', r[0]) for r in summary_rows]
+            word_counts = [r[5] or 0 for r in summary_rows]
+            colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'][:len(names)]
+
+            axes[0].bar(names, word_counts, color=colors)
+            axes[0].set_ylabel('عدد الكلمات')
+            axes[0].set_title('إجمالي الكلمات المستخرجة')
+            axes[0].tick_params(axis='x', rotation=15)
+
+            # رسم 2: متوسط الوقت
+            times = [r[4] for r in summary_rows if r[4] is not None]
+            time_names = [names[i] for i in range(len(summary_rows)) if summary_rows[i][4] is not None]
+            time_colors = [colors[i] for i in range(len(summary_rows)) if summary_rows[i][4] is not None]
+
+            if times:
+                axes[1].barh(time_names, times, color=time_colors)
+                axes[1].set_xlabel('الوقت (ثانية)')
+                axes[1].set_title('متوسط وقت المعالجة')
+
+            plt.tight_layout()
+            st.pyplot(fig)
+
+            # تفاصيل آخر مستند
+            st.markdown("### 📝 تفاصيل آخر مستند")
+            c.execute("SELECT id FROM images ORDER BY created_at DESC LIMIT 1")
+            last_img = c.fetchone()
+            if last_img:
+                logs = get_engine_logs(last_img[0])
+                for log in logs:
+                    info = EnsembleOCR.ENGINE_DESCRIPTIONS.get(log['engine_name'], {})
+                    with st.expander(
+                        f"{info.get('icon', '')} {info.get('name', log['engine_name'])} — "
+                        f"{log['word_count']} كلمة | {log['processing_time']:.2f}s"
+                    ):
+                        if log.get('raw_results'):
+                            try:
+                                raw = json.loads(log['raw_results'])
+                                if raw.get('words'):
+                                    for w in raw['words'][:20]:
+                                        st.text(f"  [{w['confidence']:.0%}] {w['text']}")
+                                    if len(raw['words']) > 20:
+                                        st.caption(f"  ... و {len(raw['words'])-20} كلمة أخرى")
+                            except Exception:
+                                pass
+
+        conn.close()
+
 
 def export_training_data():
     """تصدير بيانات التدريب بصيغة JSONL"""
@@ -696,7 +1005,8 @@ def export_training_data():
     c = conn.cursor()
     c.execute("""
         SELECT w.id, w.predicted_text, w.corrected_text, w.confidence, w.bbox,
-               w.script_class, w.is_gold_standard, i.filename
+               w.script_class, w.is_gold_standard, i.filename,
+               w.ensemble_strategy, w.engines_used, w.agreement_count, w.engine_votes
         FROM words w
         JOIN images i ON w.image_id = i.id
         WHERE w.is_corrected = 1 AND w.corrected_text IS NOT NULL
@@ -726,12 +1036,16 @@ def export_training_data():
                 "is_gold_standard": bool(row["is_gold_standard"]),
                 "document": row["filename"],
                 "crop_path": os.path.join(DIR_CROPS, f"{row['id']}.png"),
+                "ensemble": {
+                    "strategy": row["ensemble_strategy"],
+                    "engines_used": json.loads(row["engines_used"]) if row["engines_used"] else [],
+                    "agreement_count": row["agreement_count"],
+                },
             }
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     st.success(f"تم تصدير {len(rows)} سجل إلى `{export_path}`")
 
-    # عرض أول 3 سطور كمثال
     with open(export_path, "r", encoding="utf-8") as f:
         lines = f.readlines()
     for line in lines[:3]:
