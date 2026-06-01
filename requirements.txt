@@ -21,4 +21,6 @@ torch>=2.0.0
 sentencepiece>=0.1.99
 
 # 5. Surya OCR (modern, 90+ languages, high accuracy)
-surya-ocr>=0.5.0
+# IMPORTANT: Pinned to 0.6.4 — newer versions (0.7+) restructured the API
+# and removed surya.detection / surya.recognition / surya.model.* modules
+surya-ocr==0.6.4

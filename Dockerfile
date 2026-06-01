@@ -40,7 +40,14 @@ WORKDIR /app
 
 # نسخ ملف المتطلبات وتثبيتها
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+
+# تثبيت torch CPU-only أولاً (يوفر ~10GB مقارنة بنسخة CUDA الكاملة)
+# ثم تثبيت باقي المتطلبات مع استخدام نفس فهرس CPU لضمان التوافق
+RUN pip install --no-cache-dir \
+    torch --extra-index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir \
+    --extra-index-url https://download.pytorch.org/whl/cpu \
+    -r requirements.txt
 
 # تنزيل ملفات Tesseract النموذجية
 RUN tesseract --list-langs
