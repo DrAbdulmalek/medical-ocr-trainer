@@ -3,6 +3,8 @@ streamlit==1.38.0
 Pillow>=10.0.0
 pandas>=2.0.0
 numpy>=1.24.0
+matplotlib>=3.7.0
+python-Levenshtein>=0.21.0
 
 # === OCR Engines ===
 # 1. PaddleOCR (Arabic + English, best for mixed medical docs)
@@ -24,3 +26,7 @@ sentencepiece>=0.1.99
 # IMPORTANT: Pinned to 0.6.4 — newer versions (0.7+) restructured the API
 # and removed surya.detection / surya.recognition / surya.model.* modules
 surya-ocr==0.6.4
+
+# === Utilities ===
+# python-Levenshtein speeds up Levenshtein distance in ensemble merging
+# matplotlib is used for charts in the statistics tab
