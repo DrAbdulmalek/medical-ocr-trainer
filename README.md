@@ -1,3 +1,26 @@
+---
+title: Medical OCR Trainer
+emoji: 🏥
+colorFrom: blue
+colorTo: purple
+sdk: docker
+app_port: 7860
+pinned: false
+license: mit
+tags:
+  - ocr
+  - medical
+  - handwriting
+  - arabic
+  - paddleocr
+  - easyocr
+  - tesseract
+  - trocr
+  - surya
+  - ensemble
+  - streamlit
+---
+
 # Medical OCR Trainer
 
 **Interactive tool for training and correcting medical handwriting OCR**

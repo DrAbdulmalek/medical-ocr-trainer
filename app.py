@@ -62,7 +62,7 @@ def get_ensemble(
     key = f"ensemble_{strategy}_{'_'.join(sorted(engines or []))}_{confidence_threshold}"
     if key not in st.session_state:
         st.session_state[key] = EnsembleOCR(
-            engines=engines or ['paddleocr', 'easyocr', 'tesseract'],
+            engines=engines or ['paddleocr', 'easyocr', 'tesseract', 'trocr', 'surya'],
             strategy=strategy,
             confidence_threshold=confidence_threshold,
         )
@@ -465,7 +465,7 @@ def main():
             avail = st.session_state.engine_availability.get(eng, False)
             label = f"{info.get('icon', '?')} {info.get('name', eng)}"
             if avail:
-                if st.checkbox(label, value=(eng in ['paddleocr', 'easyocr', 'tesseract']), key=f"engine_{eng}"):
+                if st.checkbox(label, value=True, key=f"engine_{eng}"):
                     selected_engines.append(eng)
             else:
                 st.checkbox(label, value=False, key=f"engine_{eng}", disabled=True)
