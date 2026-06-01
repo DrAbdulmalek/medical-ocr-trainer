@@ -62,8 +62,8 @@ except Exception as e:
 # 4. Surya OCR — تنزيل النماذج
 print("[4/5] Downloading Surya OCR models...", flush=True)
 try:
-    from surya.ocr import run_ocr
     from surya.detection import run_detection
+    from surya.recognition import run_ocr
     from surya.model.detection.model import load_model as load_det
     from surya.model.recognition.model import load_model as load_rec
     det = load_det()

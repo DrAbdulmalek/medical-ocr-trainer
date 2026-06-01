@@ -539,9 +539,8 @@ class SuryaOcrEngine(BaseOcrEngine):
         if self._available is not None:
             return self._available
         try:
-            import surya.ocr
             import surya.detection
-            # التحقق من أن النماذج يمكن تحميلها
+            import surya.recognition
             from surya.model.detection.model import load_model as load_det
             from surya.model.recognition.model import load_model as load_rec
             self._available = True
@@ -574,7 +573,7 @@ class SuryaOcrEngine(BaseOcrEngine):
         t0 = time.time()
 
         try:
-            from surya.ocr import run_ocr
+            from surya.recognition import run_ocr
             from surya.detection import run_detection
             from PIL import Image as PILImage
 
