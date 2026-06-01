@@ -60,5 +60,11 @@ RUN python pre_download_models.py
 
 EXPOSE 7860
 
-# تشغيل Streamlit
-CMD ["streamlit", "run", "app.py", "--server.port=7860", "--server.address=0.0.0.0"]
+# تشغيل Streamlit — XSRF disabled for HF Spaces proxy (fixes 403 upload errors)
+CMD ["streamlit", "run", "app.py", \
+     "--server.port=7860", \
+     "--server.address=0.0.0.0", \
+     "--server.headless=true", \
+     "--browser.gatherUsageStats=false", \
+     "--server.enableCORS=false", \
+     "--server.enableXsrfProtection=false"]

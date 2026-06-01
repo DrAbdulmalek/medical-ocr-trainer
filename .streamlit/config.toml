@@ -1,0 +1,10 @@
+[server]
+# HF Spaces proxy causes 403 errors with XSRF enabled
+enableCORS = false
+enableXsrfProtection = false
+
+# Max upload size for medical scans (50MB)
+maxUploadSize = 50
+
+[browser]
+gatherUsageStats = false
