@@ -16,7 +16,7 @@ try:
     import numpy as np
     from PIL import Image as PILImage
 
-    ocr = PaddleOCR(use_angle_cls=True, lang='ar', use_gpu=False)
+    ocr = PaddleOCR(use_textline_orientation=True, lang='ar')
 
     # إنشاء صورة وهمية وتشغيل OCR لضمان تحميل كل النماذج (det, rec, cls)
     dummy = PILImage.fromarray(np.zeros((100, 300, 3), dtype=np.uint8))

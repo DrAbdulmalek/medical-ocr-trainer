@@ -207,9 +207,8 @@ class PaddleOcrEngine(BaseOcrEngine):
             # Suppress PaddleOCR verbose logs in production
             _logging.getLogger("ppocr").setLevel(_logging.WARNING)
             self._model = PaddleOCR(
-                use_angle_cls=True,
+                use_textline_orientation=True,
                 lang=self.lang,
-                use_gpu=False,
             )
         return self._model
 
