@@ -193,7 +193,7 @@ def save_words_meta(image_id, ensemble_result):
             (image_id, engine_name, word_count, processing_time, available, error, raw_results)
             VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (
-                image_id, name, er.word_count, er.processing_time,
+                image_id, name, len(er.words), er.processing_time,
                 1 if er.available else 0, er.error,
                 json.dumps(er.to_dict(), ensure_ascii=False),
             )
@@ -639,7 +639,7 @@ def main():
                         perf_data.append({
                             "المحرك": f"{info.get('icon', '')} {info.get('name', name)}",
                             "الحالة": "✅ نشط" if er.available else "❌",
-                            "عدد الكلمات": er.word_count,
+                            "عدد الكلمات": len(er.words),
                             "الوقت (ث)": f"{er.processing_time:.2f}",
                         })
                     st.dataframe(
