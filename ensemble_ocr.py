@@ -531,81 +531,101 @@ class SuryaOcrEngine(BaseOcrEngine):
     def __init__(self, langs=['ar', 'en']):
         self.langs = langs
         self._available = None
+        self._det_model = None
+        self._rec_model = None
 
     def is_available(self) -> bool:
+        """فحص عميق لتوفر Surya — يتأكد من إمكانية استيراد جميع الوحدات المطلوبة"""
         if self._available is not None:
             return self._available
         try:
             import surya.ocr
+            import surya.detection
+            # التحقق من أن النماذج يمكن تحميلها
+            from surya.model.detection.model import load_model as load_det
+            from surya.model.recognition.model import load_model as load_rec
             self._available = True
-        except ImportError:
+            logger.info("Surya OCR: all modules available")
+        except ImportError as e:
             self._available = False
-            logger.warning("Surya OCR not installed. Install with: pip install surya-ocr")
+            logger.warning(f"Surya OCR not fully installed: {e}")
+        except Exception as e:
+            self._available = False
+            logger.warning(f"Surya OCR availability check failed: {e}")
         return self._available
 
-    def recognize(self, image_path: str) -> List[OcrWord]:
-        try:
-            from surya.ocr import run_ocr
-            from surya.model.detection.model import load_model as load_det_model
-            from surya.model.recognition.model import load_model as load_rec_model
-        except ImportError as e:
-            logger.error(f"Surya OCR import failed: {e}")
-            return []
+    def _get_models(self):
+        """تحميل نماذج Surya (lazy loading مع تخزين مؤقت)"""
+        if self._det_model is not None and self._rec_model is not None:
+            return self._det_model, self._rec_model
 
+        try:
+            from surya.model.detection.model import load_model as load_det
+            from surya.model.recognition.model import load_model as load_rec
+            self._det_model = load_det()
+            self._rec_model = load_rec()
+            logger.info("Surya OCR: models loaded successfully")
+            return self._det_model, self._rec_model
+        except Exception as e:
+            logger.error(f"Surya OCR model loading failed: {e}")
+            raise
+
+    def recognize(self, image_path: str) -> List[OcrWord]:
         t0 = time.time()
 
         try:
-            img = Image.open(image_path)
-
-            # كشف خطوط النص أولاً
+            from surya.ocr import run_ocr
             from surya.detection import run_detection
-            from surya.settings import settings
+            from PIL import Image as PILImage
 
             # تحميل النماذج
-            det_model = load_det_model()
-            rec_model = load_rec_model()
+            det_model, rec_model = self._get_models()
+
+            # فتح الصورة
+            img_pil = PILImage.open(image_path)
 
             # كشف خطوط النص
-            with open(image_path, 'rb') as f:
-                img_bytes = f.read()
-
-            from surya.input.processing import prepare_image
-            PIL_image = prepare_image(img_bytes, det_model)
-
-            predictions = run_detection(PIL_image, det_model)
+            predictions = run_detection([img_pil], det_model)
 
             # استخراج النتائج
             words = []
-            if predictions:
-                from PIL import ImageDraw
-                img_pil = PILImage.open(image_path)
-
+            if predictions and len(predictions) > 0:
                 for idx, pred in enumerate(predictions):
-                    bbox_points = pred.bbox  # [x1, y1, x2, y2]
+                    # bbox: [x1, y1, x2, y2]
+                    bbox_points = pred.bbox
+
                     # تحويل إلى صيغة 4 نقاط
                     bbox = [
-                        [bbox_points[0], bbox_points[1]],
-                        [bbox_points[2], bbox_points[1]],
-                        [bbox_points[2], bbox_points[3]],
-                        [bbox_points[0], bbox_points[3]],
+                        [float(bbox_points[0]), float(bbox_points[1])],
+                        [float(bbox_points[2]), float(bbox_points[1])],
+                        [float(bbox_points[2]), float(bbox_points[3])],
+                        [float(bbox_points[0]), float(bbox_points[3])],
                     ]
 
                     # قص المنطقة والتعرف
-                    crop = img_pil.crop((bbox_points[0], bbox_points[1], bbox_points[2], bbox_points[3]))
+                    crop = img_pil.crop((
+                        bbox_points[0], bbox_points[1],
+                        bbox_points[2], bbox_points[3]
+                    ))
 
                     try:
-                        ocr_results = run_ocr([crop], [[pred]], rec_model, self.langs)
-                        text = ocr_results[0].text if ocr_results else ""
-                        conf = ocr_results[0].confidence if ocr_results else 0.5
+                        ocr_results = run_ocr(
+                            [crop], [[pred]], rec_model, self.langs
+                        )
 
-                        if text.strip():
-                            words.append(OcrWord(
-                                text=text.strip(),
-                                confidence=float(conf) if conf else 0.5,
-                                bbox=bbox,
-                                engine=self.name,
-                                engine_idx=idx,
-                            ))
+                        if ocr_results and len(ocr_results) > 0:
+                            result = ocr_results[0]
+                            text = getattr(result, 'text', '') or ''
+                            conf = getattr(result, 'confidence', 0.5) or 0.5
+
+                            if text.strip():
+                                words.append(OcrWord(
+                                    text=text.strip(),
+                                    confidence=float(conf),
+                                    bbox=bbox,
+                                    engine=self.name,
+                                    engine_idx=idx,
+                                ))
                     except Exception as e:
                         logger.warning(f"Surya word recognition failed at idx {idx}: {e}")
 

@@ -29,6 +29,10 @@ ENV TRANSFORMERS_CACHE=/app/.cache/huggingface
 ENV TORCH_HOME=/app/.cache/torch
 ENV PADDLE_HOME=/app/.cache/paddleocr
 
+# منع تنزيل النماذج من الإنترنت أثناء التشغيل (النماذج مُنزّلة مسبقاً)
+ENV HF_HUB_OFFLINE=1
+ENV TRANSFORMERS_OFFLINE=1
+
 # إنشاء مجلدات التخزين المؤقت
 RUN mkdir -p /app/.cache/huggingface /app/.cache/torch /app/.cache/paddleocr /app/data /app/uploads /app/crops /app/exports
 
