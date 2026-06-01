@@ -16,7 +16,7 @@ try:
     import numpy as np
     from PIL import Image as PILImage
 
-    ocr = PaddleOCR(use_angle_cls=True, lang='ar', show_log=False, use_gpu=False)
+    ocr = PaddleOCR(use_angle_cls=True, lang='ar', use_gpu=False)
 
     # إنشاء صورة وهمية وتشغيل OCR لضمان تحميل كل النماذج (det, rec, cls)
     dummy = PILImage.fromarray(np.zeros((100, 300, 3), dtype=np.uint8))
@@ -49,8 +49,8 @@ print("[3/5] Downloading TrOCR models...", flush=True)
 try:
     import torch
     from transformers import TrOCRProcessor, VisionEncoderDecoderModel
-    processor = TrOCRProcessor.from_pretrained("microsoft/trocr-base-handwritten")
-    model = VisionEncoderDecoderModel.from_pretrained("microsoft/trocr-base-handwritten")
+    processor = TrOCRProcessor.from_pretrained("microsoft/trocr-base-printed")
+    model = VisionEncoderDecoderModel.from_pretrained("microsoft/trocr-base-printed")
     print("  TrOCR: OK", flush=True)
     del processor, model
     gc.collect()
@@ -63,7 +63,6 @@ except Exception as e:
 print("[4/5] Downloading Surya OCR models...", flush=True)
 try:
     from surya.detection import run_detection
-    from surya.recognition import run_ocr
     from surya.model.detection.model import load_model as load_det
     from surya.model.recognition.model import load_model as load_rec
     det = load_det()

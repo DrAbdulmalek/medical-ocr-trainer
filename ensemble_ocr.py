@@ -77,10 +77,14 @@ class EngineResult:
     available: bool = True
     error: str = ""
 
+    @property
+    def word_count(self):
+        return len(self.words)
+
     def to_dict(self):
         return {
             "engine_name": self.engine_name,
-            "word_count": len(self.words),
+            "word_count": self.word_count,
             "processing_time": round(self.processing_time, 2),
             "available": self.available,
             "error": self.error,
@@ -199,10 +203,12 @@ class PaddleOcrEngine(BaseOcrEngine):
     def _get_model(self):
         if self._model is None:
             from paddleocr import PaddleOCR
+            import logging as _logging
+            # Suppress PaddleOCR verbose logs in production
+            _logging.getLogger("ppocr").setLevel(_logging.WARNING)
             self._model = PaddleOCR(
                 use_angle_cls=True,
                 lang=self.lang,
-                show_log=False,
                 use_gpu=False,
             )
         return self._model
@@ -399,13 +405,13 @@ class TrocrEngine(BaseOcrEngine):
     supports_handwriting = True
     memory_mb = 1500
 
-    def __init__(self, model_name="microsoft/trocr-base-handwritten"):
+    def __init__(self, model_name="microsoft/trocr-base-printed"):
         self.model_name = model_name
         self._processor = None
         self._model = None
         self._available = None
-        # النموذج العربي البديل
-        self._ar_model_name = "microsoft/trocr-base-handwritten"
+        # النموذج المطبوع — أفضل للوصفات والتقارير الطبية
+        self._ar_model_name = "microsoft/trocr-base-printed"
 
     def is_available(self) -> bool:
         if self._available is not None:
@@ -424,12 +430,12 @@ class TrocrEngine(BaseOcrEngine):
             import torch
             from transformers import TrOCRProcessor, VisionEncoderDecoderModel
 
-            # نموذج مخصص للخط اليدوي
+            # نموذج للنص المطبوع — مناسب للوصفات والتقارير الطبية
             self._processor = TrOCRProcessor.from_pretrained(
-                "microsoft/trocr-base-handwritten"
+                "microsoft/trocr-base-printed"
             )
             self._model = VisionEncoderDecoderModel.from_pretrained(
-                "microsoft/trocr-base-handwritten"
+                "microsoft/trocr-base-printed"
             )
             self._model.eval()
 
@@ -571,62 +577,87 @@ class SuryaOcrEngine(BaseOcrEngine):
 
     def recognize(self, image_path: str) -> List[OcrWord]:
         t0 = time.time()
-
         try:
-            from surya.recognition import run_ocr
-            from surya.detection import run_detection
             from PIL import Image as PILImage
+            import torch
 
-            # تحميل النماذج
             det_model, rec_model = self._get_models()
-
-            # فتح الصورة
-            img_pil = PILImage.open(image_path)
+            img_pil = PILImage.open(image_path).convert("RGB")
 
             # كشف خطوط النص
-            predictions = run_detection([img_pil], det_model)
+            from surya.detection import run_detection
+            det_results = run_detection([img_pil], det_model)
 
-            # استخراج النتائج
+            if not det_results or not det_results[0]:
+                logger.info(f"Surya OCR: 0 words (no detections) in {time.time()-t0:.2f}s")
+                return []
+
+            lines = det_results[0] if isinstance(det_results[0], list) else det_results
+            if not lines:
+                logger.info(f"Surya OCR: 0 words (empty lines) in {time.time()-t0:.2f}s")
+                return []
+
+            # إعداد القصاصات
+            crops = []
+            for line in lines:
+                b = line.bbox
+                crops.append(img_pil.crop((b[0], b[1], b[2], b[3])))
+
+            # التعرف على النص — v0.6.4 API
             words = []
-            if predictions and len(predictions) > 0:
-                for idx, pred in enumerate(predictions):
-                    # bbox: [x1, y1, x2, y2]
-                    bbox_points = pred.bbox
+            try:
+                from surya.recognition import run_recognition
+                rec_results = run_recognition(crops, [lines], rec_model, self.langs)
 
-                    # تحويل إلى صيغة 4 نقاط
+                for idx, result in enumerate(rec_results):
+                    b = lines[idx].bbox
                     bbox = [
-                        [float(bbox_points[0]), float(bbox_points[1])],
-                        [float(bbox_points[2]), float(bbox_points[1])],
-                        [float(bbox_points[2]), float(bbox_points[3])],
-                        [float(bbox_points[0]), float(bbox_points[3])],
+                        [float(b[0]), float(b[1])],
+                        [float(b[2]), float(b[1])],
+                        [float(b[2]), float(b[3])],
+                        [float(b[0]), float(b[3])],
                     ]
-
-                    # قص المنطقة والتعرف
-                    crop = img_pil.crop((
-                        bbox_points[0], bbox_points[1],
-                        bbox_points[2], bbox_points[3]
-                    ))
-
-                    try:
-                        ocr_results = run_ocr(
-                            [crop], [[pred]], rec_model, self.langs
-                        )
-
-                        if ocr_results and len(ocr_results) > 0:
-                            result = ocr_results[0]
-                            text = getattr(result, 'text', '') or ''
-                            conf = getattr(result, 'confidence', 0.5) or 0.5
-
-                            if text.strip():
+                    text = getattr(result, 'text', '') or ''
+                    conf = getattr(result, 'confidence', 0.7) or 0.7
+                    if text.strip():
+                        words.append(OcrWord(
+                            text=text.strip(),
+                            confidence=float(conf),
+                            bbox=bbox,
+                            engine=self.name,
+                            engine_idx=idx,
+                        ))
+            except (ImportError, AttributeError, TypeError) as e:
+                # Fallback: محاولة استخدام النموذج مباشرة مع المعالج
+                logger.info(f"Surya: run_recognition failed ({e}), trying direct inference")
+                try:
+                    from surya.model.recognition.processor import load_processor as load_rec_proc
+                    rec_processor = load_rec_proc()
+                    for idx, crop in enumerate(crops):
+                        b = lines[idx].bbox
+                        bbox = [
+                            [float(b[0]), float(b[1])],
+                            [float(b[2]), float(b[1])],
+                            [float(b[2]), float(b[3])],
+                            [float(b[0]), float(b[3])],
+                        ]
+                        try:
+                            pixel_values = rec_processor(crop, return_tensors="pt").pixel_values
+                            with torch.no_grad():
+                                generated = rec_model.generate(pixel_values)
+                            text = rec_processor.batch_decode(generated, skip_special_tokens=True)[0].strip()
+                            if text:
                                 words.append(OcrWord(
-                                    text=text.strip(),
-                                    confidence=float(conf),
+                                    text=text,
+                                    confidence=0.7,
                                     bbox=bbox,
                                     engine=self.name,
                                     engine_idx=idx,
                                 ))
-                    except Exception as e:
-                        logger.warning(f"Surya word recognition failed at idx {idx}: {e}")
+                        except Exception as e2:
+                            logger.warning(f"Surya line {idx} recognition failed: {e2}")
+                except Exception as e3:
+                    logger.error(f"Surya direct inference setup failed: {e3}")
 
             logger.info(f"Surya OCR: {len(words)} words in {time.time()-t0:.2f}s")
             return words
