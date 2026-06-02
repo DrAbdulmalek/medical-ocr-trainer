@@ -418,10 +418,12 @@ class TrocrEngine(BaseOcrEngine):
         try:
             import torch
             from transformers import TrOCRProcessor, VisionEncoderDecoderModel
+            # Verify transformers is actually usable (not just imported via torch)
+            _ = TrOCRProcessor.__name__
             self._available = True
-        except ImportError:
+        except (ImportError, AttributeError) as e:
             self._available = False
-            logger.warning("TrOCR dependencies not installed. Install with: pip install transformers torch sentencepiece")
+            logger.warning(f"TrOCR not available: {e}")
         return self._available
 
     def _get_model(self):

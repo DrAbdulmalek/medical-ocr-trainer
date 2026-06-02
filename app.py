@@ -453,7 +453,7 @@ def main():
     # --- Sidebar ---
     with st.sidebar:
         st.title("Medical OCR Trainer")
-        st.caption("Ensemble — 5 Engines")
+        st.caption(f"Ensemble — {len(selected_engines) if selected_engines else 3} Engines")
 
         st.markdown("---")
 
@@ -555,7 +555,9 @@ def main():
 
     # --- Main Area ---
     st.title("Medical OCR Trainer — Ensemble")
-    st.caption("5 Engines + Smart Merging | PaddleOCR + EasyOCR + Tesseract + TrOCR + Surya")
+    available_count = sum(1 for v in avail.values() if v)
+    available_names = [EnsembleOCR.ENGINE_DESCRIPTIONS.get(e, {}).get('name', e) for e, a in avail.items() if a]
+    st.caption(f"{available_count} Engines + Smart Merging | {' + '.join(available_names)}")
 
     # عرض حالة المحركات
     avail = st.session_state.get('engine_availability', {})
@@ -594,10 +596,10 @@ def main():
 
         if not uploaded:
             st.markdown(
-                """
+                f"""
                 ### 📤 ارفع مستندك الطبي
                 يدعم التطبيق:
-                - **5 محركات OCR** مع تجمع ذكي
+                - **{len(available_names)} محركات OCR** مع تجمع ذكي
                 - **الخط اليدوي** العربي والإنجليزي
                 - **4 استراتيجيات دمج** مختلفة
                 - **مقارنة تفصيلية** لنتائج كل محرك
