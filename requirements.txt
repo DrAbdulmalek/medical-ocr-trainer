@@ -1,28 +1,12 @@
-# =============================================================
-# Medical OCR Trainer — HF Free Tier (Lightweight)
-# Only 3 engines: PaddleOCR + EasyOCR + Tesseract
-# TrOCR and Surya removed — need ~2.3GB extra RAM (not suitable for free tier)
-# =============================================================
-
-# === Core ===
 streamlit==1.38.0
 Pillow>=10.0.0
 pandas>=2.0.0
 numpy>=1.24.0
 matplotlib>=3.7.0
 python-Levenshtein>=0.21.0
-
-# === OCR Engines (3 only — fits in ~16GB RAM) ===
-# 1. PaddleOCR (Arabic + English, best for mixed medical docs)
 paddleocr>=2.7.0
 paddlepaddle>=2.5.0
-
-# 2. EasyOCR (80+ languages, good for Latin and mixed text)
 easyocr>=1.7.0
-
-# 3. Tesseract (fast, reliable for printed text)
 pytesseract>=0.3.10
-
-# === Utilities ===
-# python-Levenshtein speeds up Levenshtein distance in ensemble merging
-# matplotlib is used for charts in the statistics tab
+# === Benchmark Suite (uses golden datasets for evaluation) ===
+medical-ocr-benchmarks @ git+https://github.com/DrAbdulmalek/medical-ocr-benchmarks.git@main
