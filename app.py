@@ -33,6 +33,22 @@ import streamlit as st
 import pandas as pd
 from PIL import Image, ImageEnhance, ImageFilter
 from datetime import datetime
+import numpy as np
+
+
+def to_native(obj):
+    """تحويل قيم numpy إلى أنواع Python أصلية (int, float, str) للتوافق مع JSON."""
+    if isinstance(obj, dict):
+        return {k: to_native(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [to_native(v) for v in obj]
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    if isinstance(obj, (np.floating,)):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return to_native(obj.tolist())
+    return obj
 
 # استيراد نظام التجمع
 from ensemble_ocr import EnsembleOCR, EnsembleResult
@@ -187,10 +203,10 @@ def save_words_meta(image_id, ensemble_result):
              ensemble_strategy, engines_used, agreement_count, engine_votes)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                image_id, json.dumps(word.bbox), word.text, word.confidence,
+                image_id, json.dumps(to_native(word.bbox)), word.text, float(word.confidence),
                 word.text, script, word.strategy,
-                json.dumps(word.engines_used), word.agreement_count,
-                json.dumps(word.engine_votes),
+                json.dumps(to_native(word.engines_used)), int(word.agreement_count),
+                json.dumps(to_native(word.engine_votes)),
             )
         )
         ids.append(c.lastrowid)
@@ -204,7 +220,7 @@ def save_words_meta(image_id, ensemble_result):
             (
                 image_id, name, len(er.words), er.processing_time,
                 1 if er.available else 0, er.error,
-                json.dumps(er.to_dict(), ensure_ascii=False),
+                json.dumps(to_native(er.to_dict()), ensure_ascii=False),
             )
         )
 
