@@ -453,7 +453,6 @@ def main():
     # --- Sidebar ---
     with st.sidebar:
         st.title("Medical OCR Trainer")
-        st.caption(f"Ensemble — {len(selected_engines) if selected_engines else 3} Engines")
 
         st.markdown("---")
 
@@ -479,6 +478,8 @@ def main():
             else:
                 st.checkbox(label, value=False, key=f"engine_{eng}", disabled=True)
                 st.caption(f"  ⚠️ غير متاح — {info.get('strengths', '')}")
+
+        st.caption(f"Ensemble — {len(selected_engines)} Engines")
 
         # === استراتيجية الدمج ===
         st.markdown("---")
@@ -555,12 +556,14 @@ def main():
 
     # --- Main Area ---
     st.title("Medical OCR Trainer — Ensemble")
+    
+    # عرض حالة المحركات
+    avail = st.session_state.get('engine_availability', {})
+    all_engines = list(EnsembleOCR.ENGINE_MAP.keys())
     available_count = sum(1 for v in avail.values() if v)
     available_names = [EnsembleOCR.ENGINE_DESCRIPTIONS.get(e, {}).get('name', e) for e, a in avail.items() if a]
     st.caption(f"{available_count} Engines + Smart Merging | {' + '.join(available_names)}")
 
-    # عرض حالة المحركات
-    avail = st.session_state.get('engine_availability', {})
     engine_cols = st.columns(len(all_engines))
     for i, eng in enumerate(all_engines):
         info = EnsembleOCR.ENGINE_DESCRIPTIONS.get(eng, {})
