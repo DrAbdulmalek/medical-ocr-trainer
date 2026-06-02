@@ -556,10 +556,10 @@ def main():
 
         st.markdown("---")
 
-        if st.button("📥 تصدير بيانات التدريب (JSONL)", use_container_width=True):
+        if st.button("📥 تصدير بيانات التدريب (JSONL)"):
             export_training_data()
 
-        if st.button("🔄 إعادة تهيئة قاعدة البيانات", use_container_width=True, type="secondary"):
+        if st.button("🔄 إعادة تهيئة قاعدة البيانات", type="secondary"):
             if st.session_state.get("confirm_reset"):
                 os.remove(DB_PATH) if os.path.exists(DB_PATH) else None
                 init_db()
@@ -675,7 +675,6 @@ def main():
                     st.dataframe(
                         pd.DataFrame(perf_data),
                         hide_index=True,
-                        use_container_width=True,
                     )
 
                 # حفظ في قاعدة البيانات
@@ -688,7 +687,7 @@ def main():
                 col_img, col_results = st.columns([1, 1.3])
 
                 with col_img:
-                    st.image(file_path, caption="الصورة الأصلية", use_container_width=True)
+                    st.image(file_path, caption="الصورة الأصلية")
 
                 with col_results:
                     st.subheader("📝 جدول التصحيح التفاعلي")
@@ -732,7 +731,6 @@ def main():
                                 "الاستراتيجية": st.column_config.TextColumn(width="small"),
                             },
                             hide_index=True,
-                            use_container_width=True,
                             num_rows="dynamic",
                         )
 
@@ -809,7 +807,6 @@ def main():
                             "النص المصحح": st.column_config.TextColumn(width="large"),
                         },
                         hide_index=True,
-                        use_container_width=True,
                         num_rows="dynamic",
                         key=f"edit_doc_{doc['id']}",
                     )
@@ -968,7 +965,6 @@ def main():
             st.dataframe(
                 pd.DataFrame(comp_data),
                 hide_index=True,
-                use_container_width=True,
             )
 
             # رسم بياني
