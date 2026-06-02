@@ -1,0 +1,52 @@
+{
+  "name": "medical-ocr-eval-v1",
+  "description": "Sample evaluation set for medical OCR quality assessment",
+  "version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "TC001",
+      "source": "synthetic",
+      "language": "en",
+      "reference": "Patient presents with patent ductus arteriosus and mild hypertension.",
+      "hypothesis": "Patient presents with patent ductus arteriosus and mild hypertention.",
+      "medical_terms": ["patent ductus arteriosus", "hypertension"],
+      "category": "cardiology"
+    },
+    {
+      "id": "TC002",
+      "source": "synthetic",
+      "language": "ar",
+      "reference": "يعاني المريض من سرطان الرئة",
+      "hypothesis": "يعاني المريض من سرطان الرئه",
+      "medical_terms": ["سرطان الرئة"],
+      "category": "oncology"
+    },
+    {
+      "id": "TC003",
+      "source": "synthetic",
+      "language": "en",
+      "reference": "Blood pressure: 120/80 mmHg, heart rate: 72 bpm, SpO2: 98%",
+      "hypothesis": "Blood pressure: 120/80 mmHg, heart rate: 72 bpm, SpO2: 98%",
+      "medical_terms": ["blood pressure", "heart rate", "SpO2"],
+      "category": "vitals"
+    },
+    {
+      "id": "TC004",
+      "source": "synthetic",
+      "language": "mixed",
+      "reference": "Diagnosis: مرض السكري Type 2 Diabetes Mellitus",
+      "hypothesis": "Diagnosis: مرض السكرى Type 2 Diabetes Mellitus",
+      "medical_terms": ["مرض السكري", "Diabetes Mellitus"],
+      "category": "endocrinology"
+    },
+    {
+      "id": "TC005",
+      "source": "synthetic",
+      "language": "en",
+      "reference": "Prescribed: Amoxicillin 500mg TID for 7 days",
+      "hypothesis": "Prescribed: Amoxicilin 500mg TID for 7 days",
+      "medical_terms": ["Amoxicillin"],
+      "category": "pharmacology"
+    }
+  ]
+}
