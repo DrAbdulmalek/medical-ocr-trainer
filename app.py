@@ -39,14 +39,23 @@ from ensemble_ocr import EnsembleOCR, EnsembleResult
 
 
 # ============================================================
-# إعدادات المسارات
+# إعدادات المسارات — دعم Hugging Face Spaces
 # ============================================================
-DIR_UPLOADS = "uploads"
-DIR_CROPS = "crops"
-DIR_DB = "data"
+# على HF Spaces، /data/ هو المجلد الوحيد الدائم (يبقى بعد إعادة تشغيل الحاوية)
+IS_HF_SPACE = os.environ.get("SPACE_ID") is not None
+
+if IS_HF_SPACE:
+    BASE_DIR = "/data"
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+DIR_UPLOADS = os.path.join(BASE_DIR, "uploads")
+DIR_CROPS = os.path.join(BASE_DIR, "crops")
+DIR_DB = os.path.join(BASE_DIR, "db")
+DIR_EXPORTS = os.path.join(BASE_DIR, "exports")
 DB_PATH = os.path.join(DIR_DB, "corrections.db")
 
-for d in [DIR_UPLOADS, DIR_CROPS, DIR_DB]:
+for d in [DIR_UPLOADS, DIR_CROPS, DIR_DB, DIR_EXPORTS]:
     os.makedirs(d, exist_ok=True)
 
 

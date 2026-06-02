@@ -1,3 +1,9 @@
+# =============================================================
+# Medical OCR Trainer — HF Free Tier (Lightweight)
+# Only 3 engines: PaddleOCR + EasyOCR + Tesseract
+# TrOCR and Surya removed — need ~2.3GB extra RAM (not suitable for free tier)
+# =============================================================
+
 # === Core ===
 streamlit==1.38.0
 Pillow>=10.0.0
@@ -6,7 +12,7 @@ numpy>=1.24.0
 matplotlib>=3.7.0
 python-Levenshtein>=0.21.0
 
-# === OCR Engines ===
+# === OCR Engines (3 only — fits in ~16GB RAM) ===
 # 1. PaddleOCR (Arabic + English, best for mixed medical docs)
 paddleocr>=2.7.0
 paddlepaddle>=2.5.0
@@ -16,16 +22,6 @@ easyocr>=1.7.0
 
 # 3. Tesseract (fast, reliable for printed text)
 pytesseract>=0.3.10
-
-# 4. TrOCR (Transformer-based, best for handwriting)
-transformers>=4.35.0
-torch>=2.0.0
-sentencepiece>=0.1.99
-
-# 5. Surya OCR (modern, 90+ languages, high accuracy)
-# IMPORTANT: Pinned to 0.6.4 — newer versions (0.7+) restructured the API
-# and removed surya.detection / surya.recognition / surya.model.* modules
-surya-ocr==0.6.4
 
 # === Utilities ===
 # python-Levenshtein speeds up Levenshtein distance in ensemble merging
