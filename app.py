@@ -682,6 +682,58 @@ def main():
                 img_id = save_image_meta(uploaded.name, file_path, img.width, img.height)
                 save_words_meta(img_id, result)
 
+                # === قص الكلمات من الصورة وعرضها ===
+                st.markdown("---")
+                st.subheader("📸 قصاصات الكلمات")
+                st.markdown("💡 *كل كلمة مستخرجة مع قصاصتها من الصورة الأصلية — تحقق بصرياً من صحة النص.*")
+
+                try:
+                    full_img = Image.open(pre_path)
+                    crop_data = []  # [(crop_pil, word_text, confidence, bbox)]
+                    for w in result.words:
+                        bbox = w.bbox
+                        if bbox and len(bbox) == 4:
+                            # bbox = [[x1,y1],[x2,y2],[x3,y3],[x4,y4]] or [x1,y1,x2,y2]
+                            try:
+                                if isinstance(bbox[0], (list, tuple)):
+                                    xs = [p[0] for p in bbox]
+                                    ys = [p[1] for p in bbox]
+                                else:
+                                    xs = [bbox[0], bbox[2]]
+                                    ys = [bbox[1], bbox[3]]
+                                x1, x2 = max(0, int(min(xs))), min(full_img.width, int(max(xs)))
+                                y1, y2 = max(0, int(min(ys))), min(full_img.height, int(max(ys)))
+                                # إضافة padding
+                                pad = 3
+                                x1 = max(0, x1 - pad)
+                                y1 = max(0, y1 - pad)
+                                x2 = min(full_img.width, x2 + pad)
+                                y2 = min(full_img.height, y2 + pad)
+                                crop = full_img.crop((x1, y1, x2, y2))
+                                # تكبير القصاصة الصغيرة جداً
+                                if crop.width < 20 or crop.height < 20:
+                                    crop = crop.resize((max(crop.width * 3, 60), max(crop.height * 3, 60)), Image.LANCZOS)
+                                crop_data.append((crop, w.text, w.confidence, (x1, y1, x2, y2)))
+                            except Exception:
+                                pass
+
+                    if crop_data:
+                        # عرض في شبكة: 6 قصاصات في كل صف
+                        cols_per_row = 6
+                        for i in range(0, len(crop_data), cols_per_row):
+                            row_crops = crop_data[i:i + cols_per_row]
+                            cols = st.columns(cols_per_row)
+                            for j, (crop_img, text, conf, bbox) in enumerate(row_crops):
+                                with cols[j]:
+                                    conf_pct = conf * 100 if conf else 0
+                                    conf_color = "🟢" if conf_pct >= 70 else ("🟡" if conf_pct >= 40 else "🔴")
+                                    st.image(crop_img, width=120)
+                                    st.caption(f"{conf_color} {text}")
+                    else:
+                        st.info("لم يتم إنشاء قصاصات.")
+                except Exception as e:
+                    st.warning(f"تعذر إنشاء القصاصات: {e}")
+
                 # عرض النتائج
                 st.markdown("---")
                 col_img, col_results = st.columns([1, 1.3])
