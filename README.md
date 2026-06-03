@@ -29,6 +29,46 @@ tags:
 
 ---
 
+## ⚡ Quick Install
+
+Choose your installation level based on available resources:
+
+```bash
+# Clone
+git clone https://github.com/DrAbdulmalek/medical-ocr-trainer.git
+cd medical-ocr-trainer
+
+# Option 1: Lite (~350MB) — PaddleOCR + Tesseract only
+pip install -e ".[lite]"
+
+# Option 2: Medium (~850MB) — Add EasyOCR
+pip install -e ".[medium]"
+
+# Option 3: TrOCR (~2.3GB) — Add TrOCR (needs PyTorch)
+pip install -e ".[trocr]"
+
+# Option 4: Surya (~1.6GB) — Add Surya OCR (GPU recommended)
+pip install -e ".[surya]"
+
+# Option 5: Full (~3.1GB+) — All engines
+pip install -e ".[full]"
+
+# System dependency (Tesseract)
+# Ubuntu/Debian: sudo apt install tesseract-ocr
+# macOS: brew install tesseract
+
+# Run
+streamlit run app.py
+```
+
+| Mode | Engines | RAM Needed | Disk | Best For |
+|------|---------|-----------|------|----------|
+| **Lite** | PaddleOCR + Tesseract | 2GB | ~350MB | Quick testing, CI/CD |
+| **Medium** | + EasyOCR | 4GB | ~850MB | Standard training |
+| **TrOCR** | + TrOCR | 8GB | ~2.3GB | Advanced handwriting |
+| **Surya** | + Surya OCR | 8GB | ~1.6GB | Multi-language layout |
+| **Full** | All 5 engines | 16GB+ | ~3.1GB+ | Benchmarking, production |
+
 ## Features
 
 - **5-Engine Ensemble OCR**: PaddleOCR + EasyOCR + Tesseract + TrOCR + Surya OCR running simultaneously with smart result merging
