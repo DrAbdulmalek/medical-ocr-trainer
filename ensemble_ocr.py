@@ -46,6 +46,28 @@ from PIL import Image
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(name)s: %(message)s')
 logger = logging.getLogger("EnsembleOCR")
 
+# ============================================
+# Optional Engine Dependencies
+# ============================================
+# Engines are loaded lazily — only imported when actually used.
+# Install with: pip install -e ".[lite|medium|trocr|surya|full]"
+
+def _check_engine_available(module_name, package_name):
+    """Check if an optional engine is installed."""
+    try:
+        __import__(module_name)
+        return True
+    except ImportError:
+        return False
+
+# Pre-check availability (lightweight — no models loaded)
+PADDLE_AVAILABLE = _check_engine_available("paddleocr", "paddleocr")
+EASYOCR_AVAILABLE = _check_engine_available("easyocr", "easyocr")
+TESSERACT_AVAILABLE = _check_engine_available("pytesseract", "pytesseract")
+TROCR_AVAILABLE = _check_engine_available("transformers", "transformers")
+SURYA_AVAILABLE = _check_engine_available("surya.ocr", "surya-ocr")
+
+
 # ============================================================
 # هياكل البيانات
 # ============================================================
