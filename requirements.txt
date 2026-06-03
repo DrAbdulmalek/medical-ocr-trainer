@@ -1,12 +1,46 @@
-streamlit==1.38.0
-Pillow>=10.0.0
+# ============================================
+# Medical OCR Trainer — Requirements
+# ============================================
+# Install only what you need. See README for details.
+#
+# Quick Install Options:
+#   pip install -e ".[lite]"         # PaddleOCR + Tesseract (~350MB)
+#   pip install -e ".[medium]"       # + EasyOCR (~850MB total)
+#   pip install -e ".[trocr]"        # + TrOCR (~2.3GB total)
+#   pip install -e ".[surya]"        # + Surya OCR (~1.6GB total)
+#   pip install -e ".[full]"         # All engines (~3.1GB+)
+# ============================================
+
+# --- Core (always required) ---
+rapidfuzz>=2.13.0
+rich>=13.0.0
+click>=8.1.0
+pillow>=10.0.0
 pandas>=2.0.0
 numpy>=1.24.0
 matplotlib>=3.7.0
 python-Levenshtein>=0.21.0
+
+# --- UI (Streamlit) ---
+streamlit>=1.38.0
+
+# --- Engine: PaddleOCR (default, ~300MB) ---
 paddleocr>=2.7.0
 paddlepaddle>=2.5.0
-easyocr>=1.7.0
+
+# --- Engine: Tesseract (~50MB, needs system: apt install tesseract-ocr) ---
 pytesseract>=0.3.10
-# === Benchmark Suite (uses golden datasets for evaluation) ===
+
+# --- Engine: EasyOCR (optional, ~500MB extra) ---
+# easyocr>=1.7.0
+
+# --- Engine: TrOCR (optional, ~1.5GB extra, needs PyTorch) ---
+# transformers>=4.36.0
+# torch>=2.1.0
+# sentencepiece>=0.1.99
+
+# --- Engine: Surya OCR (optional, ~800MB extra, GPU recommended) ---
+# surya-ocr>=0.4.5
+
+# --- Benchmarks ---
 medical-ocr-benchmarks @ git+https://github.com/DrAbdulmalek/medical-ocr-benchmarks.git@main
