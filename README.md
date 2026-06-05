@@ -90,6 +90,13 @@ medical_ocr_trainer/
 ├── ensemble_ocr.py         # 5-engine ensemble system with 4 merging strategies
 ├── data_filter.py         # Automated correction quality filter (5-layer classification)
 ├── export_training.py     # Multi-format training data exporter (JSONL/CSV/HuggingFace)
+├── evaluation/              # Evaluation metrics and benchmark integration
+│   ├── __init__.py          # Package exports
+│   ├── metrics.py            # CER, WER, medical term accuracy (OCRMetrics)
+│   ├── benchmark.py          # BenchmarkRunner against golden datasets
+│   ├── dataset_manager.py     # Dataset loading, validation, splitting
+│   └── benchmark_bridge.py   # Bridge to medical-ocr-benchmarks (graceful fallback)
+│   └── run_eval_with_benchmarks.py  # CLI evaluation script
 ├── requirements.txt       # Python dependencies (all 5 OCR engines)
 ├── uploads/                # Uploaded medical note images (gitignored)
 ├── crops/                  # Auto-generated word crops for training (gitignored)
@@ -280,8 +287,92 @@ python ensemble_ocr.py --image doc.png --engines paddleocr easyocr tesseract --s
 python ensemble_ocr.py --image note.jpg --engines all --strategy majority_voting --json
 ```
 
+## Benchmark Integration
+
+The trainer integrates with [medical-ocr-benchmarks](https://github.com/DrAbdulmalek/medical-ocr-benchmarks) for standardised evaluation against golden datasets. The integration is **optional** — the trainer works fully without it, using built-in local metrics with a graceful fallback when the benchmarks package is not installed.
+
+### How It Works
+
+| Component | Description |
+|-----------|-------------|
+| `BenchmarkBridge` | Unified wrapper around the benchmark suite; delegates to `BenchmarkRunner`, `DatasetManager`, `ReportGenerator`, `ThresholdChecker` when available |
+| `get_cer()` | Character Error Rate (always available locally) |
+| `get_wer()` | Word Error Rate (always available locally) |
+| `get_medical_accuracy()` | Medical term accuracy using a clinical dictionary |
+
+### CLI Evaluation
+
+The `evaluation/run_eval_with_benchmarks.py` script provides a command-line interface for running evaluations:
+
+```bash
+# Evaluate local text directories
+python evaluation/run_eval_with_benchmarks.py --gt-dir data/gold/ --ocr-dir exports/
+
+# Markdown report with custom thresholds
+python evaluation/run_eval_with_benchmarks.py \
+    --gt-dir data/gold/ --ocr-dir exports/ \
+    --report-format markdown --threshold-cer 0.10
+
+# HTML report saved to file
+python evaluation/run_eval_with_benchmarks.py \
+    --gt-dir data/gold/ --ocr-dir exports/ \
+    --report-format html --output reports/benchmark.html
+
+# Evaluate a golden JSON dataset
+python evaluation/run_eval_with_benchmarks.py \
+    --golden-dataset data/golden/sample_eval_set.json --engine paddleocr
+
+# Evaluate against a remote benchmark dataset (requires benchmarks package)
+python evaluation/run_eval_with_benchmarks.py \
+    --benchmark-dataset medical_prescriptions_v1 --gt-dir data/gold/
+
+# List available benchmark datasets
+python evaluation/run_eval_with_benchmarks.py --list-datasets
+
+# Use JSONL input format (from export_training.py)
+python evaluation/run_eval_with_benchmarks.py \
+    --gt-dir data/gold/ --ocr-dir exports/ --format jsonl
+```
+
+### Programmatic Usage
+
+```python
+from evaluation import BenchmarkBridge, get_cer, get_wer, get_medical_accuracy
+
+# Quick local metrics (no benchmarks package needed)
+cer = get_cer("paracetamol 500mg", "paracetamol 500 mg")
+wer = get_wer("the patient has", "the patient has diabetes")
+
+# Full benchmark evaluation
+bridge = BenchmarkBridge(threshold_cer=0.15, threshold_wer=0.25)
+results = bridge.run_benchmark(
+    ocr_results=[{"text": "paracetamol 500mg", "confidence": 0.85}],
+    ground_truth=[{"text": "paracetamol 500 mg"}],
+    dataset_name="prescriptions_v1",
+)
+print(f"CER: {results['cer']:.4f}")
+print(f"Thresholds passed: {results['thresholds_passed']}")
+```
+
+### Report Formats
+
+| Format | Use Case | Output |
+|--------|----------|--------|
+| `json` | CI/CD pipelines, automation | Machine-readable JSON to stdout or file |
+| `markdown` | Documentation, PRs | Human-readable Markdown table |
+| `html` | Sharing, archiving | Standalone HTML report with styled cards |
+
+### Default Thresholds
+
+| Metric | Default | Meaning |
+|--------|---------|---------|
+| CER | ≤ 0.15 | At most 15% character errors |
+| WER | ≤ 0.25 | At most 25% word errors |
+| Medical Accuracy | ≥ 0.90 | At least 90% of medical terms correct |
+
 ## Related Projects
 
+- [medical-ocr-benchmarks](https://github.com/DrAbdulmalek/medical-ocr-benchmarks) — Standardised golden datasets and evaluation suite for medical OCR
 - [medical-handwriting-ocr](https://github.com/DrAbdulmalek/medical-handwriting-ocr) — Full production OCR platform (FastAPI + React + K8s)
 
 ## License
