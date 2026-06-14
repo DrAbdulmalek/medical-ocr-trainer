@@ -124,3 +124,56 @@ When exporting a training dataset:
 ---
 
 > Part of the [Medical OCR Ecosystem](https://github.com/DrAbdulmalek/omni-medical-suite/blob/main/PORTFOLIO.md)
+
+## 6. Parquet Export Integration
+
+Training data can now be exported in Parquet format for efficient downstream processing:
+
+| Format | Use Case | Compression | Best For |
+|--------|----------|-------------|----------|
+| JSONL | HuggingFace training | None | Direct model training |
+| CSV | Excel/analysis | None | Human review |
+| Parquet | Analytics/warehousing | zstd | Polars, DuckDB, large-scale |
+| HF Image Folders | TrOCR fine-tuning | None | Image-to-text models |
+
+### Parquet Export Command
+```bash
+# Export training pairs as Parquet
+python export_training.py --format parquet --output exports/
+```
+
+### Parquet Schema
+- `training_pairs.parquet`: columns = [image_id, crop_path, predicted_text, corrected_text, confidence, script_class, specialty]
+- `benchmark_results.parquet`: columns = [engine, language, specialty, cer, wer, medical_accuracy, timestamp]
+
+## 7. Automated Governance (CI/CD)
+
+### Weekly Governance Workflow
+Runs every Sunday 03:00 UTC via GitHub Actions:
+
+| Step | What It Does | Frequency |
+|------|-------------|-----------|
+| Cleanup Check | Verifies cleanup scripts exist and are syntactically valid | Weekly |
+| Backup Verification | Validates backup script integrity | Weekly |
+| DB Schema Validation | Creates test DB, verifies all 5 tables + 4 indexes | Weekly |
+
+### Manual Governance Actions
+```bash
+# Trigger via GitHub Actions UI
+# Actions → Data Governance → Run workflow → Select action
+# Options: all, cleanup, backup-check, db-stats
+```
+
+## 8. Privacy & Compliance
+
+### PHI Handling
+- **No real PHI in git**: All medical images are gitignored (uploads/, crops/)
+- **DB treated as sensitive**: `corrections.db` may contain document text fragments
+- **Export review**: All exports should be reviewed for accidental PHI before sharing
+- **Golden datasets**: `data/golden/` contains only synthetic/test data
+
+### Data Deletion Request
+To request deletion of all stored data:
+1. Delete `data/corrections.db`
+2. Clear `uploads/`, `crops/`, `exports/`, `data/raw/`
+3. Re-initialize: `python -c "import sqlite3; sqlite3.connect('data/corrections.db').close()"`

@@ -4,10 +4,11 @@
 يدعم:
   - JSONL: للاستخدام مع HuggingFace Datasets
   - CSV: للاستخدام مع Pandas / Excel
+  - Parquet: للاستخدام مع Polars, DuckDB (zstd compression)
   - HuggingFace format: images/ + metadata.jsonl
 
 الاستخدام:
-    python export_training.py [--format jsonl|csv|huggingface] [--output dir]
+    python export_training.py [--format jsonl|csv|parquet|huggingface] [--output dir]
     python export_training.py --stats          # عرض إحصائيات فقط
 """
 
@@ -230,7 +231,7 @@ def show_stats(db_path=DB_PATH):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="تصدير بيانات التدريب")
-    parser.add_argument('--format', choices=['jsonl', 'csv', 'huggingface'], default='jsonl',
+    parser.add_argument('--format', choices=['jsonl', 'csv', 'parquet', 'huggingface'], default='jsonl',
                         help='صيغة التصدير')
     parser.add_argument('--output', default='exports', help='مجلد الإخراج')
     parser.add_argument('--db', default=DB_PATH, help='مسار قاعدة البيانات')
@@ -257,6 +258,33 @@ if __name__ == "__main__":
             elif args.format == 'csv':
                 output_path = os.path.join(args.output, f"training_data{suffix}_{timestamp}.csv")
                 export_csv(corrections, output_path)
+            elif args.format == 'parquet':
+                output_path = os.path.join(args.output, f"training_pairs{suffix}_{timestamp}.parquet")
+                from exports.parquet_exporter import ParquetExporter
+
+                parquet_records = [
+                    {
+                        "image_id": row["id"],
+                        "crop_path": os.path.join(DIR_CROPS, f"{row['id']}.png"),
+                        "predicted_text": row["predicted_text"],
+                        "corrected_text": row["corrected_text"],
+                        "confidence": row["confidence"],
+                        "script_class": row["script_class"],
+                        "specialty": None,
+                    }
+                    for row in corrections
+                ]
+
+                exporter = ParquetExporter(compression="zstd")
+                result = exporter.export(parquet_records, output_path)
+
+                if "error" in result:
+                    print(f"❌ فشل تصدير Parquet: {result['error']}")
+                else:
+                    ratio = result.get("compression_ratio", 0)
+                    size_kb = result.get("size_bytes", 0) / 1024
+                    print(f"✅ تم تصدير {result['rows']} سجل إلى {output_path}")
+                    print(f"   حجم الملف: {size_kb:.1f} KB | نسبة الضغط: {ratio}x (zstd)")
             elif args.format == 'huggingface':
                 output_dir = os.path.join(args.output, f"hf_dataset{suffix}_{timestamp}")
                 export_huggingface(corrections, output_dir)
