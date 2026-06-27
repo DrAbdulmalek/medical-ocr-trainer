@@ -53,7 +53,7 @@ jobs:
     if: github.event.inputs.action == 'all' || github.event.inputs.action == 'backup-check' || github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
       - name: Verify backup script
@@ -88,7 +88,7 @@ jobs:
     if: github.event.inputs.action == 'all' || github.event.inputs.action == 'db-stats' || github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
       - name: Validate DB schema
