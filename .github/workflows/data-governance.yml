@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.inputs.action == 'all' || github.event.inputs.action == 'cleanup' || github.event_name == 'schedule'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Check for expired files
         run: |
           echo "## Data Governance Report — $(date -u '+%Y-%m-%d')" >> $GITHUB_STEP_SUMMARY
@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.inputs.action == 'all' || github.event.inputs.action == 'backup-check' || github.event_name == 'schedule'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -87,7 +87,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.inputs.action == 'all' || github.event.inputs.action == 'db-stats' || github.event_name == 'schedule'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
