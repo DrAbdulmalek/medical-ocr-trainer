@@ -1,3 +1,19 @@
+> ## Repository Archived
+
+This repository has been **archived**. Its code and functionality have been consolidated into the
+[omni-medical-suite](https://github.com/DrAbdulmalek/omni-medical-suite) monorepo.
+
+| Detail | Value |
+|--------|-------|
+| **Suite location** | `apps/trainer-ui/` |
+| **Original purpose** | Human-in-the-Loop data collection with 5 OCR engines |
+| **Archived on** | 2026-07-07 |
+| **Status** | Read-only - no further updates will be made here |
+
+Please use [omni-medical-suite](https://github.com/DrAbdulmalek/omni-medical-suite) for all development.
+
+---
+
 ---
 title: Medical OCR Trainer
 emoji: 🏥
